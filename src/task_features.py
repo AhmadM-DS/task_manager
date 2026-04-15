@@ -4,30 +4,7 @@ task_features.py
 Task features that will be used in the logistic regression model.
 """
 
-task_categories = [
-    "School Work",
-    "Physical Activity",
-    "Hobbies",
-    "Social Activities",
-    "Errands",
-    "Leisure / Down Time",
-    "Health / Grooming",
-    "Miscellaneous Projects",
-    "Work"
-]
-
-#
-task_categories = [
-    "School Work",
-    "Physical Activity",
-    "Hobbies",
-    "Social Activities",
-    "Errands",
-    "Leisure / Down Time",
-    "Health / Grooming",
-    "Miscellaneous Projects",
-    "Work"
-]
+from src.constants import TASK_CATEGORIES
 
 #Validates rating input
 def get_valid_rating(prompt):
@@ -63,14 +40,14 @@ def get_task_input():
             break
 
         print("\nSelect a category:")
-        for i, category in enumerate(task_categories):
+        for i, category in enumerate(TASK_CATEGORIES):
             print(f"  {i + 1}. {category}")
 
         while True:
             try:
                 cat_choice = int(input("Category (1-9): "))
                 if 1 <= cat_choice <= 9:
-                    category = task_categories[cat_choice - 1]
+                    category = TASK_CATEGORIES[cat_choice - 1]
                     break
                 else:
                     print("Please enter a number between 1 and 9.")
@@ -78,10 +55,10 @@ def get_task_input():
                 print("Invalid input. Please enter a number.")
 
         hours_per_week = get_valid_float("Hours per week spent on this task: ")
-        stress         = get_valid_rating("Stress level (1-5): ")
-        urgency        = get_valid_rating("Urgency (1-5): ")
-        importance     = get_valid_rating("Importance (1-5): ")
-        mental_effort  = get_valid_rating("Mental effort required (1-5): ")
+        stress = get_valid_rating("Stress level (1-5): ")
+        urgency = get_valid_rating("Urgency (1-5): ")
+        importance = get_valid_rating("Importance (1-5): ")
+        mental_effort = get_valid_rating("Mental effort required (1-5): ")
 
         tasks.append({
             "name": task_name,
