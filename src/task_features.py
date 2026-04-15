@@ -41,7 +41,13 @@ def get_task_input():
     tasks = []
 
     while True:
-        task_name = input("Task name (or 'done' to finish): ").strip()
+        while True:
+            task_name = input("Task name (or 'done' to finish): ").strip()
+            if task_name.lower() == "done":
+                break
+            if task_name and not task_name.isdigit():
+                break
+            print("Invalid task name. Please enter a text description.")
         if task_name.lower() == "done":
             break
 
