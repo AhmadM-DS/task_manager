@@ -21,7 +21,7 @@ def train_model(df):
     #Applying SMOTE to address imbalance
     smote = SMOTE(random_state=42)
     X_train, y_train = smote.fit_resample(X_train, y_train)
-    
+
     """
     hours_per_week has high values while rating columns are 1-5
     therefore we transform every feature to have same scale
@@ -43,3 +43,23 @@ def train_model(df):
     print(f"\nClassification Report:\n{report}")
 
     return model, scaler
+
+def predict_tasks(model, scaler, combined):
+    feature_order = ["U", "I", "Q", "S", "category", "hours_per_week", 
+                     "stress", "urgency", "importance", "mental_effort"]
+    
+    results = []
+    for task in combined:
+        features = {f: [task[f]] for f in feature_order}
+        features_df = pd.DataFrame(features)
+        features_scaled = scaler.transform(features_df)
+        probability = model.predict_proba(features_scaled)[0][1]
+        
+        results.append({
+            "name": task["name"],
+            "completion_probability": round(probability, 10)
+        })
+    
+    results.sort(key=lambda x: x["completion_probability"], reverse=True)
+    
+    return results
