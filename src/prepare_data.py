@@ -16,30 +16,30 @@ def load_and_prepare(filepath):
         Q = round(np.random.uniform(1, 5), 2)
         S = round(np.random.uniform(1, 5), 2)
     
-    for category in TASK_CATEGORIES:
-            try:
-                hours = float(participant[(category, "Hours/Week")])
-                stress = float(participant[(category, "Stress")])
-                urgency = float(participant[(category, "Urgency")])
-                importance = float(participant[(category, "Importance")])
-                mental_effort = float(participant[(category, "Mental Effort")])
+        for category in TASK_CATEGORIES:
+                try:
+                    hours = float(participant[(category, "Hours/Week")])
+                    stress = float(participant[(category, "Stress")])
+                    urgency = float(participant[(category, "Urgency")])
+                    importance = float(participant[(category, "Importance")])
+                    mental_effort = float(participant[(category, "Mental Effort")])
 
-                completed = 1 if hours > 0 else 0
+                    completed = 1 if hours > 0 else 0
 
-                rows.append({
-                    "U": U,
-                    "I": I,
-                    "Q": Q,
-                    "S": S,
-                    "category": CATEGORY_MAP[category],
-                    "hours_per_week": hours,
-                    "stress": stress,
-                    "urgency": urgency,
-                    "importance": importance,
-                    "mental_effort": mental_effort,
-                    "completed": completed
-                })
-            except:
-                continue
+                    rows.append({
+                        "U": U,
+                        "I": I,
+                        "Q": Q,
+                        "S": S,
+                        "category": CATEGORY_MAP[category],
+                        "hours_per_week": hours,
+                        "stress": stress,
+                        "urgency": urgency,
+                        "importance": importance,
+                        "mental_effort": mental_effort,
+                        "completed": completed
+                    })
+                except:
+                    continue
 
     return pd.DataFrame(rows)

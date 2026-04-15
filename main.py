@@ -1,6 +1,10 @@
 from src.questionnaire import run_questionnaire, compute_profile
 from src.task_features import get_task_input
 from src.combine_features import combine_features
+from src.prepare_data import load_and_prepare
+
+#Load dataset
+df = load_and_prepare("data/daily_activity_survey_data.xlsx")
 
 #Step 1: Lifestyle questionnaire
 scores = run_questionnaire()
@@ -13,7 +17,7 @@ tasks = get_task_input()
 combined = combine_features(averages, tasks)
 
 #Displaying output at once
-print(f"Your dimension averages: {averages}")
+print(f"\nYour dimension averages: {averages}")
 print(f"Your personality category: {category}")
 print("\n---Task list---")
 for task in tasks:
