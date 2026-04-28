@@ -8,6 +8,8 @@ Provides a web interface for the questionnaire, task input, and results.
 import os
 import datetime
 import streamlit as st
+import streamlit.components.v1 as components
+import json
 from src.questionnaire import questions, compute_profile
 from src.combine_features import combine_features
 from src.prepare_data import load_and_prepare
@@ -527,46 +529,345 @@ if "results" in st.session_state:
                     weeks.append(week)
                     week = []
 
-            for week_dates in weeks:
-                st.markdown(
-                    f"**{week_dates[0].strftime('%b %d')} – "
-                    f"{week_dates[-1].strftime('%b %d, %Y')}**"
-                )
-                day_cols = st.columns(len(week_dates))
-                for col, day in zip(day_cols, week_dates):
-                    with col:
-                        is_today = day == datetime.date.today()
-                        header_style = (
-                            "background:#4F86C6;color:#fff;border-radius:6px 6px 0 0;"
-                            if is_today else ""
-                        )
-                        st.markdown(
-                            f"<div style='text-align:center;font-weight:600;font-size:12px;"
-                            f"padding:5px;border-bottom:1px solid #ddd;{header_style}'>"
-                            f"{day.strftime('%a')}<br>{day.strftime('%b %d')}</div>",
-                            unsafe_allow_html=True
-                        )
-                        day_events = sorted(
-                            events_by_date.get(day, []), key=lambda x: x["start_h"]
-                        )
-                        if not day_events:
-                            st.markdown(
-                                "<div style='color:#bbb;font-size:11px;text-align:center;"
-                                "padding:10px'>—</div>",
-                                unsafe_allow_html=True
-                            )
-                        for ev in day_events:
-                            dur = ev["end_h"] - ev["start_h"]
-                            icon = "📅" if ev["task_type"] == "block" else "🔁"
-                            st.markdown(
-                                f"<div style='background:{ev['color']};border-radius:5px;"
-                                f"padding:5px 7px;margin:3px 0;font-size:11px;color:#fff'>"
-                                f"<b>{icon} {ev['name']}</b><br>"
-                                f"{fmt_hour(ev['start_h'])} – {fmt_hour(ev['end_h'])} "
-                                f"({dur:.1f}h)</div>",
-                                unsafe_allow_html=True
-                            )
-                st.markdown("---")
+            PX_PER_HOUR = 64
+            SNAP = 0.5  # 30-minute snap
+            today = datetime.date.today()
+
+            # Handle drag-drop result coming back from JS
+            if "pending_drag" in st.session_state:
+                drag = st.session_state.pop("pending_drag")
+                # Find event in calendar_slots and update it
+                updated = False
+                for ev in st.session_state["calendar_slots"]:
+                    if ev["name"] == drag["name"] and abs(ev["start_h"] - drag["old_start"]) < 0.01 and str(ev["date"]) == drag["old_date"]:
+                        new_date = datetime.date.fromisoformat(drag["new_date"])
+                        new_start = drag["new_start"]
+                        dur = ev["end_h"] - ev["start_h"]
+                        ev["date"] = new_date
+                        ev["start_h"] = new_start
+                        ev["end_h"] = new_start + dur
+                        updated = True
+                        break
+                if updated:
+                    st.rerun()
+
+            for week_idx, week_dates in enumerate(weeks):
+                # Serialize events for this week to JSON for JS
+                week_events = []
+                for day in week_dates:
+                    for ev in events_by_date.get(day, []):
+                        week_events.append({
+                            "name": ev["name"],
+                            "date": str(ev["date"]),
+                            "start_h": ev["start_h"],
+                            "end_h": ev["end_h"],
+                            "color": ev["color"],
+                            "task_type": ev["task_type"],
+                        })
+
+                week_dates_str = [str(d) for d in week_dates]
+                week_labels = [f"{d.strftime('%a')}<br>{d.strftime('%b %d')}" for d in week_dates]
+                is_today_flags = [d == today for d in week_dates]
+                total_hours = cal_day_end - cal_day_start
+                grid_height = int(total_hours * PX_PER_HOUR)
+
+                # Hour tick labels every 2 hours
+                hour_ticks = []
+                h = cal_day_start
+                while h <= cal_day_end:
+                    hour_ticks.append({"h": h, "label": fmt_hour(h % 24)})
+                    h += 2
+
+                component_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }}
+  body {{ background: transparent; }}
+  #cal-wrap {{ user-select: none; }}
+  .header-row {{ display: flex; margin-left: 52px; margin-bottom: 4px; }}
+  .day-header {{ flex: 1; text-align: center; padding: 5px 2px; font-weight: 600;
+                 font-size: 12px; border-radius: 4px; margin: 0 1px; line-height:1.4; }}
+  .grid-row {{ display: flex; }}
+  .time-col {{ width: 52px; flex-shrink: 0; position: relative; height: {grid_height}px; }}
+  .time-label {{ position: absolute; right: 6px; font-size: 10px; color: #888;
+                 transform: translateY(-50%); white-space: nowrap; }}
+  .days-area {{ flex: 1; display: flex; position: relative; height: {grid_height}px; }}
+  .day-col {{ flex: 1; position: relative; border-left: 1px solid #e0e0e0;
+              height: {grid_height}px; margin: 0 1px; }}
+  .hour-line {{ position: absolute; left: 0; right: 0; border-top: 1px solid #eee; pointer-events: none; }}
+  .event-block {{ position: absolute; left: 2px; right: 2px; border-radius: 5px;
+                  padding: 3px 5px; color: #fff; overflow: hidden; cursor: grab;
+                  line-height: 1.3; transition: box-shadow 0.1s; font-size: 10px; }}
+  .event-block:active {{ cursor: grabbing; }}
+  .event-block.dragging {{ opacity: 0.5; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }}
+  .drop-highlight {{ background: rgba(79,134,198,0.15) !important; }}
+  #conflict-msg {{ color: #c0392b; font-size: 12px; margin-top: 6px;
+                   min-height: 18px; text-align: center; }}
+</style>
+</head>
+<body>
+<div id="cal-wrap">
+  <div class="header-row" id="header-row"></div>
+  <div class="grid-row">
+    <div class="time-col" id="time-col"></div>
+    <div class="days-area" id="days-area"></div>
+  </div>
+  <div id="conflict-msg"></div>
+</div>
+<script>
+const PX_PER_HOUR = {PX_PER_HOUR};
+const SNAP = {SNAP};
+const DAY_START = {cal_day_start};
+const DAY_END   = {cal_day_end};
+const GRID_H    = {grid_height};
+
+const WEEK_DATES  = {json.dumps(week_dates_str)};
+const WEEK_LABELS = {json.dumps(week_labels)};
+const IS_TODAY    = {json.dumps(is_today_flags)};
+const HOUR_TICKS  = {json.dumps(hour_ticks)};
+let events = {json.dumps(week_events)};
+
+// ── Build headers ──
+const headerRow = document.getElementById('header-row');
+WEEK_DATES.forEach((_, i) => {{
+  const d = document.createElement('div');
+  d.className = 'day-header';
+  d.style.background = IS_TODAY[i] ? '#4F86C6' : '#f5f5f5';
+  d.style.color       = IS_TODAY[i] ? '#fff'    : '#333';
+  d.innerHTML = WEEK_LABELS[i];
+  headerRow.appendChild(d);
+}});
+
+// ── Build time column ──
+const timeCol = document.getElementById('time-col');
+timeCol.style.height = GRID_H + 'px';
+HOUR_TICKS.forEach(tick => {{
+  const top = (tick.h - DAY_START) * PX_PER_HOUR;
+  const lbl = document.createElement('div');
+  lbl.className = 'time-label';
+  lbl.style.top = top + 'px';
+  lbl.textContent = tick.label;
+  timeCol.appendChild(lbl);
+}});
+
+// ── Build day columns ──
+const daysArea = document.getElementById('days-area');
+const dayCols = [];
+WEEK_DATES.forEach((dateStr, di) => {{
+  const col = document.createElement('div');
+  col.className = 'day-col';
+  col.dataset.date = dateStr;
+  col.dataset.di   = di;
+  // Hour lines
+  HOUR_TICKS.forEach(tick => {{
+    const line = document.createElement('div');
+    line.className = 'hour-line';
+    line.style.top = ((tick.h - DAY_START) * PX_PER_HOUR) + 'px';
+    col.appendChild(line);
+  }});
+  daysArea.appendChild(col);
+  dayCols.push(col);
+}});
+
+// ── Helpers ──
+function snapH(h) {{
+  return Math.round(h / SNAP) * SNAP;
+}}
+
+function fmtHour(h) {{
+  h = ((h % 24) + 24) % 24;
+  const hr = Math.floor(h);
+  const mn = Math.round((h - hr) * 60);
+  const suffix = hr < 12 ? 'am' : 'pm';
+  let disp = hr <= 12 ? hr : hr - 12;
+  if (disp === 0) disp = 12;
+  return disp + ':' + String(mn).padStart(2,'0') + suffix;
+}}
+
+function hasConflict(evName, dateStr, newStart, dur) {{
+  const newEnd = newStart + dur;
+  const TRANS = 0.5;
+  for (const ev of events) {{
+    if (ev.name === evName) continue;
+    if (ev.date !== dateStr) continue;
+    const os = ev.start_h;
+    const oe = ev.end_h + TRANS;
+    // overlap check with transition buffer
+    if (newStart < oe && newEnd + TRANS > os) return true;
+  }}
+  return false;
+}}
+
+// ── Render all events ──
+function renderEvents() {{
+  // Remove existing event blocks
+  dayCols.forEach(col => {{
+    col.querySelectorAll('.event-block').forEach(el => el.remove());
+  }});
+
+  events.forEach((ev, evIdx) => {{
+    const di = WEEK_DATES.indexOf(ev.date);
+    if (di < 0) return;
+    const col = dayCols[di];
+
+    const visStart = Math.max(ev.start_h, DAY_START);
+    const visEnd   = Math.min(ev.end_h,   DAY_END);
+    if (visEnd <= visStart) return;
+
+    const topPx    = (visStart - DAY_START) * PX_PER_HOUR;
+    const heightPx = Math.max((visEnd - visStart) * PX_PER_HOUR - 2, 18);
+    const dur      = ev.end_h - ev.start_h;
+    const icon     = ev.task_type === 'block' ? '📅' : '🔁';
+
+    const block = document.createElement('div');
+    block.className   = 'event-block';
+    block.style.top   = topPx + 'px';
+    block.style.height= heightPx + 'px';
+    block.style.background = ev.color;
+    block.dataset.evIdx = evIdx;
+
+    if (heightPx >= 28) {{
+      block.innerHTML = `<b>${{icon}} ${{ev.name}}</b><br>
+        <span style="font-size:9px">${{fmtHour(ev.start_h)}}–${{fmtHour(ev.end_h)}} (${{dur.toFixed(1)}}h)</span>`;
+    }} else {{
+      block.innerHTML = `<span>${{ev.name}}</span>`;
+    }}
+
+    // ── Drag logic ──
+    block.addEventListener('mousedown', onMouseDown);
+    col.appendChild(block);
+  }});
+}}
+
+// ── Drag state ──
+let drag = null;
+
+function onMouseDown(e) {{
+  if (e.button !== 0) return;
+  e.preventDefault();
+  const block   = e.currentTarget;
+  const evIdx   = parseInt(block.dataset.evIdx);
+  const ev      = events[evIdx];
+  const colEl   = block.closest('.day-col');
+  const colRect = colEl.getBoundingClientRect();
+  const blockRect = block.getBoundingClientRect();
+  const offsetY = e.clientY - blockRect.top;  // click offset within block
+
+  block.classList.add('dragging');
+
+  drag = {{ evIdx, ev, block, offsetY,
+             origDate: ev.date, origStart: ev.start_h }};
+
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mouseup',   onMouseUp);
+}}
+
+function onMouseMove(e) {{
+  if (!drag) return;
+  const daysRect = daysArea.getBoundingClientRect();
+
+  // Which day column are we over?
+  let targetDi = -1;
+  let targetDate = null;
+  dayCols.forEach((col, di) => {{
+    const r = col.getBoundingClientRect();
+    if (e.clientX >= r.left && e.clientX <= r.right) {{
+      targetDi   = di;
+      targetDate = WEEK_DATES[di];
+    }}
+    col.classList.remove('drop-highlight');
+  }});
+
+  if (targetDi >= 0) {{
+    dayCols[targetDi].classList.add('drop-highlight');
+    const colRect = dayCols[targetDi].getBoundingClientRect();
+    const rawH = (e.clientY - drag.offsetY - colRect.top) / PX_PER_HOUR + DAY_START;
+    const snappedStart = snapH(rawH);
+    const dur = drag.ev.end_h - drag.ev.start_h;
+
+    // Move block visually
+    const topPx = (Math.max(snappedStart, DAY_START) - DAY_START) * PX_PER_HOUR;
+    drag.block.style.top = topPx + 'px';
+
+    drag._targetDi    = targetDi;
+    drag._targetDate  = targetDate;
+    drag._newStart    = snappedStart;
+  }}
+}}
+
+function onMouseUp(e) {{
+  if (!drag) return;
+  document.removeEventListener('mousemove', onMouseMove);
+  document.removeEventListener('mouseup',   onMouseUp);
+  drag.block.classList.remove('dragging');
+  dayCols.forEach(col => col.classList.remove('drop-highlight'));
+
+  const conflictMsg = document.getElementById('conflict-msg');
+  conflictMsg.textContent = '';
+
+  if (drag._targetDate != null) {{
+    const dur      = drag.ev.end_h - drag.ev.start_h;
+    const newStart = drag._newStart;
+    const newEnd   = newStart + dur;
+
+    // Boundary check
+    if (newStart < DAY_START || newEnd > DAY_END) {{
+      conflictMsg.textContent = '⚠️ Task would go outside your available hours — move cancelled.';
+      renderEvents();
+      drag = null;
+      return;
+    }}
+
+    // Conflict check
+    if (hasConflict(drag.ev.name, drag._targetDate, newStart, dur)) {{
+      conflictMsg.textContent = '⚠️ That slot overlaps another task — move cancelled.';
+      renderEvents();
+      drag = null;
+      return;
+    }}
+
+    // Apply move
+    const oldDate  = drag.ev.date;
+    const oldStart = drag.ev.start_h;
+    events[drag.evIdx].date    = drag._targetDate;
+    events[drag.evIdx].start_h = newStart;
+    events[drag.evIdx].end_h   = newStart + dur;
+
+    renderEvents();
+
+    // Send update back to Streamlit via query param trick
+    const payload = JSON.stringify({{
+      name:      drag.ev.name,
+      old_date:  oldDate,
+      old_start: oldStart,
+      new_date:  drag._targetDate,
+      new_start: newStart
+    }});
+    // Post to Streamlit parent
+    window.parent.postMessage({{type: 'streamlit:setComponentValue', value: payload}}, '*');
+  }} else {{
+    renderEvents();
+  }}
+  drag = null;
+}}
+
+renderEvents();
+</script>
+</body>
+</html>
+"""
+                result = components.html(component_html, height=grid_height + 80, scrolling=False)
+
+                # Handle drag result returned from JS component
+                if result and isinstance(result, str):
+                    try:
+                        drag_data = json.loads(result)
+                        st.session_state["pending_drag"] = drag_data
+                        st.rerun()
+                    except Exception:
+                        pass
 
         else:  # Monthly
             import calendar as cal_mod
