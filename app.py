@@ -151,7 +151,7 @@ if "category_ratings" in st.session_state:
                 "Total hours per week", min_value=0.5, max_value=168.0, value=1.0, step=0.5
             )
             max_session = st.number_input(
-                "Max session length (hours)", min_value=0.5, max_value=8.0, value=4.0, step=0.5,
+                "Max session length (hours)", min_value=0.5, max_value=8.0, value=2.0, step=0.5,
                 help="Each session will be capped at this length."
             )
             duration_hours = hours_per_week
