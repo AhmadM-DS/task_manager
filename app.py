@@ -178,7 +178,7 @@ if "category_ratings" in st.session_state:
             max_session = None
         else:
             default_hpw = autofill["hours_per_week"] if autofill and autofill["task_type"] == "weekly" else 1.0
-            default_max = autofill.get("max_session") if autofill else 4.0
+            default_max = (autofill.get("max_session") or 4.0) if autofill else 4.0
             hours_per_week = st.number_input(
                 "Total hours per week", min_value=0.5, max_value=168.0,
                 value=float(default_hpw), step=0.5
