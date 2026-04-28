@@ -111,7 +111,6 @@ if "category_ratings" in st.session_state:
         st.session_state["form_counter"] = 0
 
     fc = st.session_state["form_counter"]
-    cat_defaults = st.session_state["category_ratings"][TASK_CATEGORIES[0]]
 
     task_type = st.radio(
         "Task type",
@@ -120,19 +119,20 @@ if "category_ratings" in st.session_state:
     )
     is_block = task_type.startswith("Block")
 
+    # Category outside the form so its value can update the slider defaults
+    selected_category = st.selectbox(
+        "Category",
+        TASK_CATEGORIES,
+        index=0,
+        key=f"cat_select_{fc}"
+    )
+    cat_defaults = st.session_state["category_ratings"][selected_category]
+
     form_key = f"task_form_{fc}"
 
     with st.form(form_key):
         # Task Name
         task_name = st.text_input("Task Name")
-
-        # Category (under Task Name)
-        selected_category = st.selectbox(
-            "Category",
-            TASK_CATEGORIES,
-            index=0,
-            key=f"cat_select_{fc}"
-        )
 
         if is_block:
             duration_hours = st.number_input(
